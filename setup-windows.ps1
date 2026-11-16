@@ -50,29 +50,67 @@ $features = @(
     }
 )
 
+function Test-RealPython {
+    param([string]$Exe)
+    if (-not $Exe -or -not (Test-Path -LiteralPath $Exe)) { return $false }
+    # Windows 商店的应用执行别名（WindowsApps\python.exe）只是占位程序：
+    # 运行任何命令都无输出（或弹商店），必须排除，否则 doctor 全部"无输出"。
+    if ($Exe -like '*\WindowsApps\*') { return $false }
+    try {
+        $probe = (& $Exe -c 'import sys;sys.stdout.write(str(sys.version_info[0]))' 2>$null | Out-String).Trim()
+        return (($LASTEXITCODE -eq 0) -and ($probe -eq '3'))
+    } catch { return $false }
+}
+
 function Find-PythonExe {
-    $py = (Get-Command python -ErrorAction SilentlyContinue).Source
-    if ($py -and (Test-Path -LiteralPath $py)) { return $py }
+    $candidates = @()
+
+    # py 启动器最可靠：正式安装的 Python 通常会注册它，且不受 PATH 里商店别名干扰
     $launcher = Join-Path $env:SystemRoot 'py.exe'
     if (Test-Path -LiteralPath $launcher) {
         try {
-            $exe = (& $launcher -3 -c 'import sys;print(sys.executable)' 2>$null | Select-Object -Last 1)
-            if ($exe -and (Test-Path -LiteralPath $exe.Trim())) { return $exe.Trim() }
+            $exe = (& $launcher -3 -c 'import sys;sys.stdout.write(sys.executable)' 2>$null | Select-Object -Last 1)
+            if ($exe) { $candidates += $exe.Trim() }
         } catch { }
+    }
+
+    $candidates += (Get-Command python -ErrorAction SilentlyContinue).Source
+    $candidates += (Get-Command python3 -ErrorAction SilentlyContinue).Source
+
+    foreach ($pat in @(
+        'C:\Python3*\python.exe',
+        "$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe",
+        'C:\Program Files\Python3*\python.exe'
+    )) {
+        $hit = Get-ChildItem $pat -ErrorAction SilentlyContinue |
+               Sort-Object FullName -Descending | Select-Object -First 1
+        if ($hit) { $candidates += $hit.FullName }
+    }
+
+    foreach ($c in $candidates) {
+        if ($c -and (Test-RealPython $c)) { return $c }
     }
     return $null
 }
 
 function Get-DoctorResult {
     param([string]$PythonExe, [string]$ScriptPath)
-    $raw = (& $PythonExe $ScriptPath 'doctor' 2>$null | Out-String).Trim()
-    if (-not $raw) {
-        return [pscustomobject]@{ Ok = $false; Report = 'doctor 无输出，脚本可能被安全软件拦截' }
+    $output = (& $PythonExe $ScriptPath 'doctor' 2>&1 | Out-String).Trim()
+    $code = $LASTEXITCODE
+    if (-not $output) {
+        return [pscustomobject]@{ Ok = $false; Report = "doctor 无输出（退出码 $code）；请确认已登录对应客户端" }
     }
-    try {
-        $json = $raw | ConvertFrom-Json
-    } catch {
-        return [pscustomobject]@{ Ok = $false; Report = 'doctor 输出不是合法 JSON：' + $raw.Substring(0, [Math]::Min(120, $raw.Length)) }
+    $json = $null
+    try { $json = $output | ConvertFrom-Json } catch {
+        foreach ($line in ($output -split '\r?\n')) {
+            if ($line.TrimStart().StartsWith('{')) {
+                try { $json = $line | ConvertFrom-Json; break } catch { }
+            }
+        }
+    }
+    if (-not $json) {
+        $preview = $output.Substring(0, [Math]::Min(160, $output.Length)).Replace("`n", ' ')
+        return [pscustomobject]@{ Ok = $false; Report = "doctor 输出异常（退出码 $code）：$preview" }
     }
     $bad = @('NO_AUTH', 'NO_SESSION', 'AUTH_ERROR', 'ERROR', '')
     $ok = ($json.needs_attention -ne $true) -and ($bad -notcontains [string]$json.result)
@@ -116,8 +154,16 @@ Write-Host ''
 Write-Host '[1/3] 检查运行环境 ...' -ForegroundColor Yellow
 $python = Find-PythonExe
 if (-not $python) {
-    Write-Host '  没找到 Python 3。请先安装：https://www.python.org/downloads/' -ForegroundColor Red
-    Write-Host '  安装时记得勾选 "Add Python to PATH"，装完重跑本向导。' -ForegroundColor Yellow
+    Write-Host '  没找到可用的 Python 3。' -ForegroundColor Red
+    $pathPython = (Get-Command python -ErrorAction SilentlyContinue).Source
+    if ($pathPython -like '*\WindowsApps\*') {
+        Write-Host ('  PATH 里的 python 是 Windows 商店别名（{0}），不是真正的 Python。' -f $pathPython) -ForegroundColor Yellow
+        Write-Host '  请二选一：' -ForegroundColor Yellow
+        Write-Host '   A. 到 https://www.python.org/downloads/ 安装 Python 3，勾选 "Add Python to PATH"' -ForegroundColor Yellow
+        Write-Host '   B. 若已从商店装过 Python：设置 → 应用 → 高级应用设置 → 应用执行别名，关闭 python.exe 的别名' -ForegroundColor Yellow
+    } else {
+        Write-Host '  请安装 Python 3：https://www.python.org/downloads/ ，勾选 "Add Python to PATH"，装完重跑本向导。' -ForegroundColor Yellow
+    }
     exit 1
 }
 $version = (& $python '--version' 2>&1 | Out-String).Trim()

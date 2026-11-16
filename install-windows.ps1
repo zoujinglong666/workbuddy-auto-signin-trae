@@ -23,37 +23,50 @@ $ManualPythonw = ""   # 例如 C:\Python313\pythonw.exe
 $ManualSignin  = ""   # 例如 C:\Users\You\Desktop\checkin\signin.py
 # ====================================================
 
+function Test-Pythonw {
+    param([string]$Exe)
+    if (-not $Exe -or -not (Test-Path -LiteralPath $Exe)) { return $false }
+    # Windows 商店的应用执行别名（WindowsApps\pythonw.exe）不是真 Python，必须排除
+    if ($Exe -like '*\WindowsApps\*') { return $false }
+    $py = Join-Path (Split-Path -Parent $Exe) 'python.exe'
+    if (-not (Test-Path -LiteralPath $py)) { return $false }
+    try {
+        $probe = (& $py -c 'import sys;sys.stdout.write(str(sys.version_info[0]))' 2>$null | Out-String).Trim()
+        return (($LASTEXITCODE -eq 0) -and ($probe -eq '3'))
+    } catch { return $false }
+}
+
 function Find-Pythonw {
-    # 1) PATH 里就有 pythonw
+    # 1) PATH 里就有 pythonw（跳过 Windows 商店别名）
     $c = (Get-Command pythonw -ErrorAction SilentlyContinue).Source
-    if ($c -and (Test-Path -LiteralPath $c)) { return $c }
+    if (Test-Pythonw $c) { return $c }
 
     # 2) PATH 里有 python.exe，取同目录的 pythonw
     $py = (Get-Command python -ErrorAction SilentlyContinue).Source
     if ($py) {
-        $c = Join-Path (Split-Path $py) "pythonw.exe"
-        if (Test-Path -LiteralPath $c) { return $c }
+        $c = Join-Path (Split-Path -Parent $py) 'pythonw.exe'
+        if (Test-Pythonw $c) { return $c }
     }
 
     # 3) 常见安装目录（很多 Windows 装机 Python 并不进 PATH，这一步最常命中）
     foreach ($pat in @(
-        "C:\Python3*\pythonw.exe",
+        'C:\Python3*\pythonw.exe',
         "$env:LOCALAPPDATA\Programs\Python\Python3*\pythonw.exe",
-        "C:\Program Files\Python3*\pythonw.exe"
+        'C:\Program Files\Python3*\pythonw.exe'
     )) {
         $hit = Get-ChildItem $pat -ErrorAction SilentlyContinue |
                Sort-Object FullName -Descending | Select-Object -First 1
-        if ($hit) { return $hit.FullName }
+        if ($hit -and (Test-Pythonw $hit.FullName)) { return $hit.FullName }
     }
 
     # 4) py 启动器（装在 C:\Windows，几乎总在）
-    $launcher = Join-Path $env:SystemRoot "py.exe"
+    $launcher = Join-Path $env:SystemRoot 'py.exe'
     if (Test-Path -LiteralPath $launcher) {
         try {
-            $exe = (& $launcher -3 -c "import sys;print(sys.executable)" 2>$null | Select-Object -Last 1)
+            $exe = (& $launcher -3 -c 'import sys;sys.stdout.write(sys.executable)' 2>$null | Select-Object -Last 1)
             if ($exe) {
-                $c = Join-Path (Split-Path $exe.Trim()) "pythonw.exe"
-                if (Test-Path -LiteralPath $c) { return $c }
+                $c = Join-Path (Split-Path -Parent $exe.Trim()) 'pythonw.exe'
+                if (Test-Pythonw $c) { return $c }
             }
         } catch { }
     }
@@ -73,8 +86,9 @@ if (-not $pythonw -or -not (Test-Path -LiteralPath $pythonw)) { $pythonw = Find-
 if (-not $pythonw -or -not (Test-Path -LiteralPath $pythonw)) {
     Write-Host " 失败" -ForegroundColor Red
     Write-Host ""
-    Write-Host "没找到 pythonw.exe。请先安装 Python 3：https://www.python.org/downloads/" -ForegroundColor Yellow
-    Write-Host "装好后重跑本脚本；或把脚本顶部的 `$ManualPythonw 填成完整路径。" -ForegroundColor Yellow
+    Write-Host "没找到可用的 pythonw.exe。PATH 里的 python 可能是 Windows 商店别名（WindowsApps\python.exe），它不是真 Python。" -ForegroundColor Yellow
+    Write-Host "请到 https://www.python.org/downloads/ 安装 Python 3（勾选 Add Python to PATH），装完重跑本脚本。" -ForegroundColor Yellow
+    Write-Host "或把脚本顶部的 `$ManualPythonw 填成真实 pythonw.exe 的完整路径。" -ForegroundColor Yellow
     exit 1
 }
 Write-Host " $pythonw" -ForegroundColor Green

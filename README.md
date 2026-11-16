@@ -420,6 +420,7 @@ Windows 按 `WORKBUDDY_EXE → 默认安装目录 → 注册表` 的顺序发现
 
 | 现象 | 处理 |
 |---|---|
+| 向导的 Python 显示为 `...\WindowsApps\python.exe`，或三项体检都是「doctor 无输出」 | **Windows 商店的 Python 别名不是真 Python**，它运行任何命令都没有输出（退出码 9009）。到 [python.org](https://www.python.org/downloads/) 安装正式 Python 3 并勾选 **Add Python to PATH**；若已从商店装过，到「设置 → 应用 → 高级应用设置 → 应用执行别名」关闭 `python.exe` 的别名。新版向导会自动跳过商店别名、优先用 `py` 启动器找真 Python |
 | `NO_AUTH / 未找到登录凭据` | 先登录一次 WorkBuddy 桌面端（Linux 则是 CodeBuddy CLI）；或设置 `WORKBUDDY_AUTH_FILE` |
 | `NO_AUTH / WORKBUDDY_AUTH_FILE 指向的文件不存在` | 环境变量路径写错了——核对 `looked_in` 字段里的实际路径 |
 | `NO_SESSION` | 本地缺少登录会话或必要字段，请先登录客户端 |
