@@ -16,7 +16,7 @@
 
 > 两个自包含的 Python 脚本，每天分别帮你领取 **WorkBuddy**（腾讯 AI 编程助手）的签到积分和 **Qoder CN** 的 100 通用 Credits。两者都只读取你自己机器上的登录态，零内置密钥，可安全分享。
 >
-> Qoder CN 是可选的独立功能，Windows 下可一键安装独立计划任务，不影响 WorkBuddy；详见[可选：Qoder CN](#qoder-cn)。
+> Qoder CN 与 Trae 都是可选的独立功能，Windows 下各自一键安装独立计划任务，互不影响；详见[可选：Qoder CN](#qoder-cn) 与[可选：Trae](#trae)。
 >
 > 👤 作者：[88lin](https://dev.88lin.eu.org/) · 📦 仓库：[github.com/88lin/workbuddy-auto-signin](https://github.com/88lin/workbuddy-auto-signin)
 
@@ -83,6 +83,73 @@
 - ✅ 本机有 **Python 3**（任意版本，无需任何第三方包）
 - ⬜ 可选：装了 `git` 就能直接 `clone`；没有的话去仓库页面 **Code → Download ZIP** 解压，效果一样
 - 🎁 可选：想顺便自动领 **Qoder CN** 的每日 100 Credits，需已登录 Qoder CN 桌面端；见[可选：Qoder CN](#qoder-cn)
+- 🎯 可选：想自动领 **Trae CN** 的每日积分，需已登录 Trae CN 桌面端；见[可选：Trae](#trae)
+
+---
+
+## 🤝 给同事使用（团队分发）
+
+这份目录在你的机器上已经跑通了三套功能（WorkBuddy / Qoder CN / Trae）。**注意：Trae 部分是你在本仓库里加的，原作者仓库没有**——别让同事去 `git clone` 原仓库，否则拿不到 `trae_signin.py`。
+
+### 方式 A：发 zip（推荐，同事不用装 git）
+
+在你这边生成干净分发包：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\make-dist.ps1
+```
+
+产物是 `dist\workbuddy-auto-signin-YYYYMMDD.zip`。脚本采用**白名单打包**：只有 18 个源码/文档文件会进包，本机的 `*.log`、`trae/.trae_checkin_state.json`、token 缓存、`.git`、`__pycache__` 全部排除；打包前后还会扫描真实 token 特征并回读校验，命中就中止。控制台会打印 SHA256，建议连校验值一起发，方便同事核对。
+
+> ⚠️ 不要图省事直接压缩整个工作目录——里面 `signin.log` / `trae_signin.log` 含你的 UID、积分和状态，发出去等于泄露登录信息。
+
+同事拿到后：
+
+1. **解压整个 zip**（保留里面的 `trae` 子目录，不要只复制单个 `.py` 文件）
+2. 双击 **`setup.cmd`**（不用懂 PowerShell；双击被拦截时，在目录里打开 PowerShell 跑 `powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1`）
+3. 向导会先做**离线体检**，逐项显示哪些功能可用、哪些因为没登录客户端而跳过；然后勾选要装的功能，确认即可
+4. 装完用 `python signin.py status` / `python qoder_signin.py status` / `python trae_signin.py status` 验证（只读，不领取）
+
+### 方式 B：放到团队自己的仓库（便于后续更新）
+
+在你们自己的 GitHub / Gitee / 内网 GitLab 建一个仓库把这份代码推上去。**先改 remote**——当前 `origin` 指向原作者仓库，别推错：
+
+```powershell
+git remote set-url origin <你们仓库的地址>
+git add -A
+git commit -m "Add Trae auto checkin and team setup"
+git push -u origin main
+```
+
+同事 `git clone` 后同样跑 `setup.cmd`。以后接口失效你修好推上去，同事 `git pull` 再跑一次向导即可——同名计划任务会被覆盖更新，不用先卸载。
+
+### 统一向导 `setup-windows.ps1`
+
+| 命令 | 作用 |
+|---|---|
+| `.\setup.cmd`（双击） | 交互式：体检 → 勾选 → 安装 |
+| `powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1 -CheckOnly` | 只体检，不装任何任务 |
+| `powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1 -Yes` | 非交互：安装所有体检通过的功能 |
+| `powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1 -Only WorkBuddy,Trae -Yes` | 只装指定功能（可用名：`WorkBuddy` / `Qoder` / `Trae`） |
+| `powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1 -Uninstall` | 卸载全部 5 个计划任务 |
+
+向导会注册的任务：
+
+| 前缀 | 任务 | 频率 |
+|---|---|---|
+| WorkBuddy | `WorkBuddyAutoSignin` / `WorkBuddyGrowthPoll` | 每天 00:05 / 每 4 小时 |
+| Qoder | `QoderDailyCredits` | 每天 5 个时间点 |
+| Trae | `TraeAutoCheckin` / `TraeCheckinRetry` | 每天 00:23 / 每小时 :37 |
+
+体检不通过时（例如同事没装 Trae 客户端），对应功能会显示跳过原因和前置条件，其余功能照常安装。
+
+### 分发前 checklist
+
+- [ ] 用 `make-dist.ps1` 生成包，不用手工压缩
+- [ ] 把 SHA256 一起发，让同事核对下载完整性
+- [ ] 提醒同事：Python 3 要到 [python.org](https://www.python.org/downloads/) 装，安装时勾选 **Add Python to PATH**；然后登录对应的桌面端一次
+- [ ] 提醒同事：任务计划程序若报「拒绝访问 / 0x80070005」，用**同一个 Windows 账号**以管理员身份重跑
+- [ ] 告知风险：签到接口逆向自桌面端，官方改版后可能失效；仅供个人自动化使用，请遵守各服务条款
 
 ---
 
@@ -487,6 +554,77 @@ bash uninstall-qoder-macos.sh
 
 > [!WARNING]
 > Credits 领取接口同样是从桌面端行为推导的，服务端改一版就可能失效。脚本不含任何密钥，只读取运行者本机的 Qoder CN 登录态；不会打印 token，也不会改写登录态文件。使用风险自负，请遵守 Qoder 的服务条款。
+
+---
+
+<a id="trae"></a>
+
+## 🎯 可选：Trae 每日自动领积分
+
+`trae_signin.py` 自动领取 **Trae CN** 的每日签到积分。同样是独立的第三方任务，不影响 WorkBuddy 的两个任务，也不依赖 `pip`。
+
+核心签到与设备证明逻辑来自 MIT 项目 [L0NE-6/Trae-AutoCheckin](https://github.com/L0NE-6/Trae-AutoCheckin)，源码已 vendor 在 `trae/` 目录（见 [trae/NOTICE.md](trae/NOTICE.md)）；本仓库额外做了两件事：把凭据解密改成**纯标准库实现**（上游需要 `cryptography`），并封装成与 `signin.py` 一致的「一行 JSON + 静默日志 + 计划任务」形态。
+
+### 前置条件
+
+- 已安装并**登录过 Trae CN 桌面端**（脚本只读它写出的 `storage.json`，不抓包、不联网上传）
+- 本机有 **Python 3**（与 WorkBuddy 共用即可）
+
+### 一键安装（Windows）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-trae-windows.ps1
+```
+
+| 任务 | 触发 | 干什么 |
+|---|---|---|
+| `TraeAutoCheckin` | 每天 00:23 | 签到领积分，静默写 `trae_signin.log` |
+| `TraeCheckinRetry` | 每小时 :37 | 补签（已签则零请求，只做本地状态判断） |
+
+00:23 而非 00:00 是有意为之：整点是全站抢签高峰，最容易撞上服务端限流 `9074`。
+
+**卸载**：
+
+```powershell
+Unregister-ScheduledTask -TaskName "TraeAutoCheckin" -Confirm:$false
+Unregister-ScheduledTask -TaskName "TraeCheckinRetry" -Confirm:$false
+```
+
+### 手动运行
+
+```bash
+python trae_signin.py doctor        # 离线自检：凭据 / 设备号 / 设备密钥，不联网
+python trae_signin.py status        # 只查今日状态与积分，不领取
+python trae_signin.py auto          # 查状态 + 未签则领取（幂等）
+python trae_signin.py silent        # 同 auto，结果写 trae_signin.log
+python trae_signin.py silent-poll   # 轮询补签：已签则零请求
+```
+
+输出与 WorkBuddy 一致，都是一行 JSON，`report` 字段是人话：
+
+```json
+{"result": "SUCCESS", "report": "ZJl：签到成功（签到成功，当前余额 700.00）", "needs_attention": false, ...}
+```
+
+**日志**：默认写脚本同目录的 `trae_signin.log`，只有**真领到或出错**才落盘（「已签到」不写）。想连空跑也记录，设 `TRAE_SIGNIN_LOG_EMPTY=1`。
+
+### 配置
+
+| 环境变量 | 作用 |
+|---|---|
+| `TRAE_SIGNIN_LOG` | 日志路径（默认 `trae_signin.log`） |
+| `TRAE_STORAGE_PATH` | 指定客户端 `storage.json`（自动探测失败时） |
+| `TRAE_NO_REFRESH=1` | 禁止自动续期：accessToken 过期时只报警，不抢客户端的 refreshToken |
+| `TRAE_ACCOUNTS` | 多账号 JSON；不设则自动读本机桌面端登录态 |
+| `TRAE_JITTER` | 随机抖动秒数，本脚本默认已设为 `0`（计划任务不需要） |
+
+其余变量（设备密钥、限流冷却等）见 `trae/trae_checkin.py` 顶部注释。
+
+> [!WARNING]
+> **refreshToken 是轮换链**：每次续期都会作废旧值。脚本把最新值写进 `trae/.trae_token_cache.json`，但**不会**写回客户端的 `storage.json`——所以别在别处（青龙、GitHub Actions）同时跑同一账号，否则会互相把 token 顶失效，届时需要重新登录客户端。介意这点就设 `TRAE_NO_REFRESH=1`，让脚本只在 token 有效期内工作（约 7 天）。
+
+> [!NOTE]
+> `x-device-id` 必须是客户端真实注册过的设备号，生成的号会被服务端拒成 `9074`；一个真号一天只能签一个账号。脚本自动从 `storage.json` 的 `iCubeAuthInfo://icube-dc:<数字>` 取，无需手动配置。
 
 ---
 
