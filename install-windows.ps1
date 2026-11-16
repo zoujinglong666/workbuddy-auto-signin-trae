@@ -37,6 +37,21 @@ function Test-Pythonw {
 }
 
 function Find-Pythonw {
+    # 0) 分发包自带的绿色版 Python（同事无需安装）
+    $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+    $runtimeDir = Join-Path $scriptRoot 'runtime\python'
+    $bundled = Join-Path $runtimeDir 'pythonw.exe'
+    if (-not (Test-Path -LiteralPath $bundled)) {
+        $zip = Join-Path $scriptRoot 'runtime\python-3.11.9-embed-amd64.zip'
+        if (Test-Path -LiteralPath $zip) {
+            try {
+                if (-not (Test-Path -LiteralPath $runtimeDir)) { New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null }
+                Expand-Archive -LiteralPath $zip -DestinationPath $runtimeDir -Force
+            } catch { }
+        }
+    }
+    if (Test-Pythonw $bundled) { return $bundled }
+
     # 1) PATH 里就有 pythonw（跳过 Windows 商店别名）
     $c = (Get-Command pythonw -ErrorAction SilentlyContinue).Source
     if (Test-Pythonw $c) { return $c }

@@ -26,7 +26,8 @@ $include = @(
     'setup-windows.ps1', 'setup.cmd', 'make-dist.ps1',
     'install-qoder-macos.sh', 'uninstall-qoder-macos.sh',
     'workbuddy-auto-signin.plist.example',
-    'trae/NOTICE.md', 'trae/trae_checkin.py', 'trae/trae_get_token.py'
+    'trae/NOTICE.md', 'trae/trae_checkin.py', 'trae/trae_get_token.py',
+    'runtime/python-3.11.9-embed-amd64.zip'
 )
 
 # ── 敏感特征：任何白名单文件里出现真实凭据就中止打包 ──
@@ -123,7 +124,7 @@ try {
     Write-Host ''
     Write-Host '给同事的一句话：' -ForegroundColor White
     Write-Host '  解压整个 zip（保留 trae 子目录）→ 双击 setup.cmd → 按提示选功能。' -ForegroundColor Yellow
-    Write-Host '  需要先装 Python 3 并登录过对应的桌面端客户端。' -ForegroundColor DarkGray
+    Write-Host '  无需安装 Python（包内已内置），但需登录过对应的桌面端客户端。' -ForegroundColor DarkGray
     Write-Host ''
     Write-Host '提醒：别直接压缩整个工作目录，会把本机日志和 token 缓存一起发出去。' -ForegroundColor Yellow
     Write-Host ''

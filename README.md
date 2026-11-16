@@ -80,7 +80,7 @@
 ## 📋 前置条件
 
 - ✅ 已安装并**登录过 WorkBuddy 桌面端**（登录后自动写出凭据文件，脚本靠它鉴权）；**Linux 没有**桌面端，登录过 [CodeBuddy CLI](https://www.codebuddy.cn) 即可，脚本会自动探测它的凭据
-- ✅ 本机有 **Python 3**（任意版本，无需任何第三方包）
+- ✅ 本机有 **Python 3**（任意版本，无需任何第三方包）；分发包已内置绿色版 Python，同事无需自行安装
 - ⬜ 可选：装了 `git` 就能直接 `clone`；没有的话去仓库页面 **Code → Download ZIP** 解压，效果一样
 - 🎁 可选：想顺便自动领 **Qoder CN** 的每日 100 Credits，需已登录 Qoder CN 桌面端；见[可选：Qoder CN](#qoder-cn)
 - 🎯 可选：想自动领 **Trae CN** 的每日积分，需已登录 Trae CN 桌面端；见[可选：Trae](#trae)
@@ -99,16 +99,16 @@
 powershell -ExecutionPolicy Bypass -File .\make-dist.ps1
 ```
 
-产物是 `dist\workbuddy-auto-signin-YYYYMMDD.zip`。脚本采用**白名单打包**：只有 18 个源码/文档文件会进包，本机的 `*.log`、`trae/.trae_checkin_state.json`、token 缓存、`.git`、`__pycache__` 全部排除；打包前后还会扫描真实 token 特征并回读校验，命中就中止。控制台会打印 SHA256，建议连校验值一起发，方便同事核对。
+产物是 `dist\workbuddy-auto-signin-YYYYMMDD.zip`（约 12 MB）。脚本采用**白名单打包**：只有 19 个文件会进包——源码/文档，以及 `runtime\python-3.11.9-embed-amd64.zip`（**官方绿色版 Python，约 11 MB，解压后约 35 MB**），同事解压后由向导自动展开到 `runtime\python\`，全程不用下载或安装 Python。本机的 `*.log`、`trae/.trae_checkin_state.json`、token 缓存、`.git`、`__pycache__` 全部排除；打包前后还会扫描真实 token 特征并回读校验，命中就中止。控制台会打印 SHA256，建议连校验值一起发，方便同事核对。
 
 > ⚠️ 不要图省事直接压缩整个工作目录——里面 `signin.log` / `trae_signin.log` 含你的 UID、积分和状态，发出去等于泄露登录信息。
 
 同事拿到后：
 
-1. **解压整个 zip**（保留里面的 `trae` 子目录，不要只复制单个 `.py` 文件）
+1. **解压整个 zip**（保留里面的 `trae` 和 `runtime` 子目录，不要只复制单个 `.py` 文件）
 2. 双击 **`setup.cmd`**（不用懂 PowerShell；双击被拦截时，在目录里打开 PowerShell 跑 `powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1`）
-3. 向导会先做**离线体检**，逐项显示哪些功能可用、哪些因为没登录客户端而跳过；然后勾选要装的功能，确认即可
-4. 装完用 `python signin.py status` / `python qoder_signin.py status` / `python trae_signin.py status` 验证（只读，不领取）
+3. 向导首次运行会自动解压内置 Python 到 `runtime\python\`（约 35 MB），然后做**离线体检**，逐项显示哪些功能可用、哪些因为没登录客户端而跳过；勾选要装的功能，确认即可
+4. 装完用 `runtime\python\python.exe signin.py status` / `... qoder_signin.py status` / `... trae_signin.py status` 验证（只读，不领取）
 
 ### 方式 B：放到团队自己的仓库（便于后续更新）
 
@@ -147,7 +147,7 @@ git push -u origin main
 
 - [ ] 用 `make-dist.ps1` 生成包，不用手工压缩
 - [ ] 把 SHA256 一起发，让同事核对下载完整性
-- [ ] 提醒同事：Python 3 要到 [python.org](https://www.python.org/downloads/) 装，安装时勾选 **Add Python to PATH**；然后登录对应的桌面端一次
+- [ ] 提醒同事：**不用装 Python**（分发包已内置），但要登录过对应的桌面端客户端一次
 - [ ] 提醒同事：任务计划程序若报「拒绝访问 / 0x80070005」，用**同一个 Windows 账号**以管理员身份重跑
 - [ ] 告知风险：签到接口逆向自桌面端，官方改版后可能失效；仅供个人自动化使用，请遵守各服务条款
 

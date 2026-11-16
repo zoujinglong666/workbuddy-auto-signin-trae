@@ -63,6 +63,24 @@ function Test-RealPython {
 }
 
 function Find-PythonExe {
+    # 0) 分发包自带的绿色版 Python：同事完全不用安装，首次运行自动解压
+    $runtimeDir = Join-Path $here 'runtime\python'
+    $bundled = Join-Path $runtimeDir 'python.exe'
+    if (-not (Test-Path -LiteralPath $bundled)) {
+        $zip = Join-Path $here 'runtime\python-3.11.9-embed-amd64.zip'
+        if (Test-Path -LiteralPath $zip) {
+            Write-Host '  首次运行：正在解压内置绿色版 Python ...' -NoNewline
+            try {
+                if (-not (Test-Path -LiteralPath $runtimeDir)) { New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null }
+                Expand-Archive -LiteralPath $zip -DestinationPath $runtimeDir -Force
+                Write-Host ' OK' -ForegroundColor Green
+            } catch {
+                Write-Host ' 失败（将尝试使用系统 Python）' -ForegroundColor Yellow
+            }
+        }
+    }
+    if (Test-RealPython $bundled) { return $bundled }
+
     $candidates = @()
 
     # py 启动器最可靠：正式安装的 Python 通常会注册它，且不受 PATH 里商店别名干扰
@@ -168,6 +186,9 @@ if (-not $python) {
 }
 $version = (& $python '--version' 2>&1 | Out-String).Trim()
 Write-Host ('  Python: {0}  ({1})' -f $version, $python) -ForegroundColor Green
+if ($python -like '*\runtime\python\*') {
+    Write-Host '  使用分发包内置 Python，无需在系统安装' -ForegroundColor DarkGray
+}
 
 $missing = @()
 foreach ($f in $features) {
