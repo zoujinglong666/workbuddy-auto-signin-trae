@@ -684,9 +684,10 @@ python minmax_signin.py silent-poll   # 轮询补签：已签则零请求
 | `MINIMAX_SIGNIN_LOG` | 日志路径（默认 `minmax_signin.log`） |
 | `MINIMAX_SIGNIN_LOG_EMPTY=1` | 空跑（已签过）也写日志 |
 | `MINIMAX_TIME_BUDGET` | 单次运行网络时间预算秒数（默认 180，上限 300） |
+| `MINIMAX_NO_REFRESH=1` | 禁用自动续期（保守模式：token 过期就提示打开客户端） |
 
 > [!NOTE]
-> 脚本**不负责登录与续期**，token 仍由 MiniMax Code 客户端管理（客户端运行时会自动刷新凭据文件，有效期约 12 小时）。只要客户端偶尔打开过，签到就没问题；如果连续几天不开客户端，token 会过期，脚本会明确提示「打开一次 MiniMax Code 客户端」。
+> **自动续期**：token 有效期约 12 小时。脚本在剩余有效期不足 1 小时（或已过期）时，自动用 refreshToken 调 `account.minimax.cn/oauth2/token`（逆向自桌面端 3.1.6）换取新 token，并把**轮换后的新 refreshToken 原子写回凭据文件**（generation+1），与客户端共用同一条 token 链。客户端连续几天不开也能正常签到；只有 refreshToken 彻底失效（如长时间未续期被服务端回收）才需要重新登录客户端。
 
 > [!WARNING]
 > 签到接口逆向自桌面端，服务端改版即可能失效。脚本不会打印或记录 `accessToken` / `api_key`；使用风险自负，请遵守 MiniMax 服务条款。
