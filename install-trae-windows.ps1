@@ -117,7 +117,7 @@ Write-Host " $signin" -ForegroundColor Green
 # --- 3. 创建两个定时任务 ---
 Write-Host "[3/3] 创建定时任务 ..." -NoNewline
 $taskRows = @(
-    @{ Name = "TraeAutoCheckin";  When = "每天 00:23"; What = "签到领积分" },
+    @{ Name = "TraeAutoCheckin";  When = "每天 00:00~08:00 随机"; What = "签到领积分" },
     @{ Name = "TraeCheckinRetry"; When = "每小时 :37"; What = "补签（已签则零请求）" }
 )
 $registeredTasks = @()
@@ -131,10 +131,13 @@ try {
     $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive `
         -RunLevel Limited -ErrorAction Stop
 
-    # 任务 1：每日签到。00:23 是实测较稳的时间点——00:00~00:10 是全天最高峰，
-    # 整点抢签最容易撞上服务端限流 9074。
+    # 任务 1：每日签到。基础触发 00:00 + 8 小时随机延迟（RandomDelay 由任务计划
+    # 程序在每天触发时随机决定），等效于每天 00:00~08:00 之间随机一个时刻运行，
+    # 打散固定时间形成的规律；抢签高峰（00:00~00:10）大样本下被稀释，
+    # 且每小时补签任务仍然兜底。
     $act1 = New-ScheduledTaskAction -Execute $pythonw -Argument "`"$signin`" silent" -ErrorAction Stop
-    $tri1 = New-ScheduledTaskTrigger -Daily -At "00:23" -ErrorAction Stop
+    $tri1 = New-ScheduledTaskTrigger -Daily -At "00:00" -ErrorAction Stop
+    $tri1.RandomDelay = "PT8H"
     $set1 = New-ScheduledTaskSettingsSet -StartWhenAvailable -Hidden `
             -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries `
             -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -ErrorAction Stop

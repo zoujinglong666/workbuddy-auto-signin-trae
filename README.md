@@ -138,10 +138,12 @@ git push -u origin main
 
 | 前缀 | 任务 | 频率 |
 |---|---|---|
-| WorkBuddy | `WorkBuddyAutoSignin` / `WorkBuddyGrowthPoll` | 每天 00:05 / 每 4 小时 |
-| Qoder | `QoderDailyCredits` | 每天 5 个时间点 |
-| Trae | `TraeAutoCheckin` / `TraeCheckinRetry` | 每天 00:23 / 每小时 :37 |
-| MiniMax | `MiniMaxAutoCheckin` / `MiniMaxCheckinRetry` | 每天 00:07 / 每小时 :23 |
+| WorkBuddy | `WorkBuddyAutoSignin` / `WorkBuddyGrowthPoll` | 每天 00:00~08:00 随机 / 每 4 小时 |
+| Qoder | `QoderDailyCredits` | 每天 5 个固定时间点（活动 10:00 刷新，不适用随机） |
+| Trae | `TraeAutoCheckin` / `TraeCheckinRetry` | 每天 00:00~08:00 随机 / 每小时 :37 |
+| MiniMax | `MiniMaxAutoCheckin` / `MiniMaxCheckinRetry` | 每天 00:00~08:00 随机 / 每小时 :23 |
+
+随机时刻由任务计划程序的 `RandomDelay` 实现（基础触发 00:00 + 最多 8 小时随机延迟），每天系统自动决定一个不同的时刻；错过（关机）后开机仍会补跑。向导汇报里的「下次运行 00:00」是基础时间，实际运行时刻每天不同。
 
 体检不通过时（例如同事没装某个客户端），对应功能会显示跳过原因和前置条件，其余功能照常安装。
 
@@ -241,7 +243,7 @@ powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
 
 | 任务 | 频率 | 干什么 |
 |---|---|---|
-| `WorkBuddyAutoSignin` | 每天 00:05 | 签到 + 成长中心，静默写 `signin.log` |
+| `WorkBuddyAutoSignin` | 每天 00:00~08:00 随机 | 签到 + 成长中心，静默写 `signin.log` |
 | `WorkBuddyGrowthPoll` | 每 4 小时 | 补签（未签才签）+ 成长中心全套 |
 
 两个任务都零 Token、无窗口、关机错过后下次开机自动补跑。装完后终端会打印结果和下次运行时间。
@@ -581,10 +583,10 @@ powershell -ExecutionPolicy Bypass -File .\install-trae-windows.ps1
 
 | 任务 | 触发 | 干什么 |
 |---|---|---|
-| `TraeAutoCheckin` | 每天 00:23 | 签到领积分，静默写 `trae_signin.log` |
+| `TraeAutoCheckin` | 每天 00:00~08:00 随机 | 签到领积分，静默写 `trae_signin.log` |
 | `TraeCheckinRetry` | 每小时 :37 | 补签（已签则零请求，只做本地状态判断） |
 
-00:23 而非 00:00 是有意为之：整点是全站抢签高峰，最容易撞上服务端限流 `9074`。
+随机时刻由任务计划程序的 `RandomDelay`（基础触发 00:00 + 最多 8 小时随机延迟）实现，每天系统自动换一个时刻，避免固定时间的规律性；错过关机后开机仍会补跑，且每小时补签任务兜底。
 
 **卸载**：
 
@@ -650,7 +652,7 @@ powershell -ExecutionPolicy Bypass -File .\install-minimax-windows.ps1
 
 | 任务 | 触发 | 干什么 |
 |---|---|---|
-| `MiniMaxAutoCheckin` | 每天 00:07 | 签到领积分，静默写 `minmax_signin.log` |
+| `MiniMaxAutoCheckin` | 每天 00:00~08:00 随机 | 签到领积分，静默写 `minmax_signin.log` |
 | `MiniMaxCheckinRetry` | 每小时 :23 | 补签（已签则零请求，只做本地状态判断） |
 
 **卸载**：

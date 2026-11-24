@@ -130,7 +130,7 @@ Write-Host " $signin" -ForegroundColor Green
 # --- 3. 创建两个定时任务 ---
 Write-Host "[3/3] 创建定时任务 ..." -NoNewline
 $taskRows = @(
-    @{ Name = "WorkBuddyAutoSignin"; When = "每天 00:05"; What = "签到 + 成长中心" },
+    @{ Name = "WorkBuddyAutoSignin"; When = "每天 00:00~08:00 随机"; What = "签到 + 成长中心" },
     @{ Name = "WorkBuddyGrowthPoll"; When = "每 4 小时"; What = "补签 + 成长中心全套" }
 )
 $registeredTasks = @()
@@ -148,9 +148,11 @@ try {
     $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive `
         -RunLevel Limited -ErrorAction Stop
 
-    # 任务 1：每日签到（每天 00:05）
+    # 任务 1：每日签到。基础触发 00:00 + 8 小时随机延迟，每天 00:00~08:00
+    # 之间随机一个时刻运行，打散固定时间规律；GrowthPoll 每 4 小时兜底。
     $act1 = New-ScheduledTaskAction -Execute $pythonw -Argument "`"$signin`" silent" -ErrorAction Stop
-    $tri1 = New-ScheduledTaskTrigger -Daily -At "00:05" -ErrorAction Stop
+    $tri1 = New-ScheduledTaskTrigger -Daily -At "00:00" -ErrorAction Stop
+    $tri1.RandomDelay = "PT8H"
     $set1 = New-ScheduledTaskSettingsSet -StartWhenAvailable -Hidden `
             -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries `
             -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -ErrorAction Stop

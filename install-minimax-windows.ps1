@@ -122,7 +122,7 @@ Write-Host " $signin" -ForegroundColor Green
 # --- 3. 创建两个定时任务 ---
 Write-Host "[3/3] 创建定时任务 ..." -NoNewline
 $taskRows = @(
-    @{ Name = "MiniMaxAutoCheckin";  When = "每天 00:07";  What = "签到领积分" },
+    @{ Name = "MiniMaxAutoCheckin";  When = "每天 00:00~08:00 随机";  What = "签到领积分" },
     @{ Name = "MiniMaxCheckinRetry"; When = "每小时 :23"; What = "补签（已签则零请求）" }
 )
 $registeredTasks = @()
@@ -136,9 +136,11 @@ try {
     $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive `
         -RunLevel Limited -ErrorAction Stop
 
-    # 任务 1：每日签到。00:07 避开整点抢签高峰。
+    # 任务 1：每日签到。基础触发 00:00 + 8 小时随机延迟，每天 00:00~08:00
+    # 之间随机一个时刻运行，打散固定时间规律；每小时补签任务兜底。
     $act1 = New-ScheduledTaskAction -Execute $pythonw -Argument "`"$signin`" silent" -ErrorAction Stop
-    $tri1 = New-ScheduledTaskTrigger -Daily -At "00:07" -ErrorAction Stop
+    $tri1 = New-ScheduledTaskTrigger -Daily -At "00:00" -ErrorAction Stop
+    $tri1.RandomDelay = "PT8H"
     $set1 = New-ScheduledTaskSettingsSet -StartWhenAvailable -Hidden `
             -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries `
             -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -ErrorAction Stop
