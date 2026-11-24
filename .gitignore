@@ -7,6 +7,7 @@ __pycache__/
 .workbuddy/
 signin.log
 qoder_signin.log
+minmax_signin.log
 
 # Trae local runtime data (token cache / device ids / daily state contain credentials)
 trae_signin.log

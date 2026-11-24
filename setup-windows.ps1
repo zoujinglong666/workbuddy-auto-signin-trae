@@ -47,6 +47,12 @@ $features = @(
         Doctor = 'trae_signin.py'; Installer = 'install-trae-windows.ps1'
         Tasks = @('TraeAutoCheckin', 'TraeCheckinRetry')
         Log = 'trae_signin.log'; Require = '已安装并登录 Trae CN 桌面端'
+    },
+    [pscustomobject]@{
+        Key = 'MiniMax'; Label = 'MiniMax Code 每日签到积分'
+        Doctor = 'minmax_signin.py'; Installer = 'install-minimax-windows.ps1'
+        Tasks = @('MiniMaxAutoCheckin', 'MiniMaxCheckinRetry')
+        Log = 'minmax_signin.log'; Require = '已安装并登录 MiniMax Code 桌面端'
     }
 )
 

@@ -84,6 +84,7 @@
 - ⬜ 可选：装了 `git` 就能直接 `clone`；没有的话去仓库页面 **Code → Download ZIP** 解压，效果一样
 - 🎁 可选：想顺便自动领 **Qoder CN** 的每日 100 Credits，需已登录 Qoder CN 桌面端；见[可选：Qoder CN](#qoder-cn)
 - 🎯 可选：想自动领 **Trae CN** 的每日积分，需已登录 Trae CN 桌面端；见[可选：Trae](#trae)
+- 🎯 可选：想自动领 **MiniMax Code** 的每日积分，需已登录 MiniMax Code 桌面端；见[可选：MiniMax Code](#minimax-code每日签到)
 
 ---
 
@@ -140,8 +141,9 @@ git push -u origin main
 | WorkBuddy | `WorkBuddyAutoSignin` / `WorkBuddyGrowthPoll` | 每天 00:05 / 每 4 小时 |
 | Qoder | `QoderDailyCredits` | 每天 5 个时间点 |
 | Trae | `TraeAutoCheckin` / `TraeCheckinRetry` | 每天 00:23 / 每小时 :37 |
+| MiniMax | `MiniMaxAutoCheckin` / `MiniMaxCheckinRetry` | 每天 00:07 / 每小时 :23 |
 
-体检不通过时（例如同事没装 Trae 客户端），对应功能会显示跳过原因和前置条件，其余功能照常安装。
+体检不通过时（例如同事没装某个客户端），对应功能会显示跳过原因和前置条件，其余功能照常安装。
 
 ### 分发前 checklist
 
@@ -626,6 +628,68 @@ python trae_signin.py silent-poll   # 轮询补签：已签则零请求
 
 > [!NOTE]
 > `x-device-id` 必须是客户端真实注册过的设备号，生成的号会被服务端拒成 `9074`；一个真号一天只能签一个账号。脚本自动从 `storage.json` 的 `iCubeAuthInfo://icube-dc:<数字>` 取，无需手动配置。
+
+---
+
+## 🎯 可选：MiniMax Code 每日签到
+
+`minmax_signin.py` 自动领取 **MiniMax Code** 的每日签到积分（7 天日历，400~1000 积分/天）。同样是独立任务，不影响其他功能，也不依赖 `pip`。
+
+接口与请求参数逆向自 MiniMax Code 桌面端 3.1.6（`agent.minimax.cn/minimax-cloud/api/v1/signin/*`），脚本只读取客户端写出的登录凭据文件，**不需要任何签名头**，已实测：已签状态重复调用 `claim` 会被服务端去重（`claim_result=2`），不会重复发分。
+
+### 前置条件
+
+- 已安装并**登录过 MiniMax Code 桌面端**（登录态在 `~/.minimax/auth/**/auth.json`，明文 JSON，脚本直接读取）
+- 本机有 **Python 3**（与 WorkBuddy 共用即可；分发包已内置绿色版 Python）
+
+### 一键安装（Windows）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-minimax-windows.ps1
+```
+
+| 任务 | 触发 | 干什么 |
+|---|---|---|
+| `MiniMaxAutoCheckin` | 每天 00:07 | 签到领积分，静默写 `minmax_signin.log` |
+| `MiniMaxCheckinRetry` | 每小时 :23 | 补签（已签则零请求，只做本地状态判断） |
+
+**卸载**：
+
+```powershell
+Unregister-ScheduledTask -TaskName "MiniMaxAutoCheckin" -Confirm:$false
+Unregister-ScheduledTask -TaskName "MiniMaxCheckinRetry" -Confirm:$false
+```
+
+### 手动运行
+
+```bash
+python minmax_signin.py doctor        # 离线自检：凭据存在性与有效期，不联网
+python minmax_signin.py status        # 只查今日状态与积分余额，不领取
+python minmax_signin.py auto          # 查状态 + 未签则领取（幂等）
+python minmax_signin.py silent        # 同 auto，结果写 minmax_signin.log
+python minmax_signin.py silent-poll   # 轮询补签：已签则零请求
+```
+
+输出与本项目其他脚本一致（一行 JSON，`report` 是人话）：
+
+```json
+{"result": "SUCCESS", "report": "签到成功，本次 +400 积分，积分余额 2400", "needs_attention": false, ...}
+```
+
+### 配置
+
+| 环境变量 | 作用 |
+|---|---|
+| `MINIMAX_AUTH_FILE` | 指定凭据文件（自动探测 `~/.minimax/auth/**/auth.json` 失败时） |
+| `MINIMAX_SIGNIN_LOG` | 日志路径（默认 `minmax_signin.log`） |
+| `MINIMAX_SIGNIN_LOG_EMPTY=1` | 空跑（已签过）也写日志 |
+| `MINIMAX_TIME_BUDGET` | 单次运行网络时间预算秒数（默认 180，上限 300） |
+
+> [!NOTE]
+> 脚本**不负责登录与续期**，token 仍由 MiniMax Code 客户端管理（客户端运行时会自动刷新凭据文件，有效期约 12 小时）。只要客户端偶尔打开过，签到就没问题；如果连续几天不开客户端，token 会过期，脚本会明确提示「打开一次 MiniMax Code 客户端」。
+
+> [!WARNING]
+> 签到接口逆向自桌面端，服务端改版即可能失效。脚本不会打印或记录 `accessToken` / `api_key`；使用风险自负，请遵守 MiniMax 服务条款。
 
 ---
 

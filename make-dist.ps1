@@ -21,8 +21,9 @@ if (-not $OutDir) { $OutDir = Join-Path $here 'dist' }
 # ── 白名单：只有这些文件会进入分发包 ──
 $include = @(
     'README.md', 'LICENSE', '.gitignore',
-    'signin.py', 'qoder_signin.py', 'trae_signin.py',
+    'signin.py', 'qoder_signin.py', 'trae_signin.py', 'minmax_signin.py',
     'install-windows.ps1', 'install-qoder-windows.ps1', 'install-trae-windows.ps1',
+    'install-minimax-windows.ps1',
     'setup-windows.ps1', 'setup.cmd', 'make-dist.ps1',
     'install-qoder-macos.sh', 'uninstall-qoder-macos.sh',
     'workbuddy-auto-signin.plist.example',
