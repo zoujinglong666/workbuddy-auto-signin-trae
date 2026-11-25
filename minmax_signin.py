@@ -18,15 +18,19 @@ MiniMax Code 每日自动签到 · minmax_signin.py
   MINIMAX_SIGNIN_LOG       silent 模式日志路径（默认脚本同目录 minmax_signin.log）
   MINIMAX_SIGNIN_LOG_EMPTY=1  空跑（已签过）也写日志
   MINIMAX_TIME_BUDGET      单次运行网络时间预算秒数（默认 180，上限 300）
+  MINIMAX_NO_REFRESH=1     禁用自动续期
+  MINIMAX_REGION=cn|global 强制区域（默认从凭据路径/字段推断）
+  MINIMAX_UG_HOST / MINIMAX_OAUTH_HOST / MINIMAX_CREDIT_HOST  手动覆盖服务域名
 
 📌 说明
   • 签到接口与请求参数逆向自 MiniMax Code 桌面端 3.1.6，仅供个人自动化使用。
   • 脚本不打印 token / api_key，不上传任何东西。
+  • 区域自适应：桌面端内置国内（.cn）与海外（.io）两套域名，脚本递归搜索
+    ~/.minimax 下所有 auth.json，逐凭据 × 两种区域尝试，海外版/多凭据也支持。
   • 自动续期：剩余有效期不足 1 小时（或已过期）时，自动用 refreshToken 调
-    account.minimax.cn/oauth2/token 换新 token，并把轮换后的新 refreshToken
-    原子写回凭据文件（generation+1），与客户端共用同一条 token 链。
-    客户端几天没开也能正常签到；refreshToken 彻底失效才需要重新登录客户端。
-  • 设 MINIMAX_NO_REFRESH=1 可禁用自动续期（保守模式）。
+    对应区域的 /oauth2/token 换新 token，并把轮换后的新 refreshToken 原子写回
+    凭据文件（generation+1），与客户端共用同一条 token 链。
+    refreshToken 彻底失效才需要重新登录客户端。
 ────────────────────────────────────────────────────────────
 """
 import glob
@@ -42,11 +46,42 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LOG_PATH = os.environ.get("MINIMAX_SIGNIN_LOG") or os.path.join(HERE, "minmax_signin.log")
 LOG_EMPTY = os.environ.get("MINIMAX_SIGNIN_LOG_EMPTY", "").strip().lower() in ("1", "true", "yes", "on")
 
-HOST_UG = "https://agent.minimax.cn"
-HOST_ACCOUNT = "https://www.minimaxi.com"
-EP_STATUS = HOST_UG + "/minimax-cloud/api/v1/signin/status"
-EP_CLAIM = HOST_UG + "/minimax-cloud/api/v1/signin/claim"
-EP_CREDIT = HOST_ACCOUNT + "/backend/account/token_plan_credit"
+# 国内 / 海外两套服务域名（逆向自桌面端 3.1.6，客户端两者都内置）
+HOSTS = {
+    "cn": {
+        "ug": "https://agent.minimax.cn",
+        "oauth": "https://account.minimax.cn",
+        "credit": "https://www.minimaxi.com",
+    },
+    "global": {
+        "ug": "https://agent.minimax.io",
+        "oauth": "https://account.minimax.io",
+        "credit": "https://www.minimax.io",
+    },
+}
+
+
+def _region_of(path, rec):
+    """按凭据的 region 字段/目录推断服务区域。可用 MINIMAX_REGION 覆盖。"""
+    forced = os.environ.get("MINIMAX_REGION", "").strip().lower()
+    if forced in ("cn", "china", "国内"):
+        return "cn"
+    if forced in ("global", "overseas", "io", "海外"):
+        return "global"
+    marker = ("%s %s" % (path, rec.get("region") or "")).lower()
+    if any(k in marker for k in ("overseas", "global", "/io/", "-us", "international")):
+        return "global"
+    return "cn"
+
+
+def _hosts_for(region):
+    h = dict(HOSTS[region])
+    for key, env in (("ug", "MINIMAX_UG_HOST"), ("oauth", "MINIMAX_OAUTH_HOST"),
+                     ("credit", "MINIMAX_CREDIT_HOST")):
+        val = os.environ.get(env, "").strip().rstrip("/")
+        if val:
+            h[key] = val
+    return h
 
 USER_AGENT = ("MiniMaxAgent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) MiniMax/3.1.6 Chrome/148.0.7778.280 Safari/537.36")
@@ -75,29 +110,40 @@ _DEADLINE = time.time() + BUDGET
 
 # ══════════════════ 凭据 ══════════════════
 def _load_auth_records():
-    """返回 [(来源路径, 记录key, 记录dict)]；记录须含 accessToken。"""
+    """返回所有 [(来源路径, 记录key, 记录dict)]；记录须含 accessToken。
+    递归搜索 ~/.minimax 下所有 auth.json —— 不同版本/区域的客户端目录深度不同。
+    """
     out = []
     candidates = []
     env = os.environ.get("MINIMAX_AUTH_FILE", "").strip()
     if env:
         candidates.append(env)
     else:
-        root = os.path.join(os.path.expanduser("~"), ".minimax", "auth")
-        candidates += glob.glob(os.path.join(root, "*", "*", "*", "auth.json"))
+        root = os.path.join(os.path.expanduser("~"), ".minimax")
+        for pattern in ("auth.json", "codex-auth.json"):
+            candidates += glob.glob(os.path.join(root, "**", pattern), recursive=True)
+    seen = set()
     for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
         try:
             with open(path, encoding="utf-8") as fh:
                 data = json.load(fh)
         except Exception:
             continue
-        for k, rec in (data.get("records") or {}).items():
+        records = data.get("records") or {}
+        # codex-auth.json 可能是顶层单记录结构
+        if not records and isinstance(data.get("accessToken"), str):
+            records = {"default": data}
+        for k, rec in records.items():
             if isinstance(rec, dict) and rec.get("accessToken"):
                 out.append((path, k, rec))
     return out
 
 
 def _pick_record():
-    """取有效期最长的记录；无则 None。"""
+    """兼容旧调用：取有效期最长的记录；无则 None。"""
     records = _load_auth_records()
     if not records:
         return None, None, None
@@ -150,8 +196,9 @@ def _write_back(path, record_key, updates):
         return False
 
 
-def _do_refresh(path, record_key, rec):
+def _do_refresh(path, record_key, rec, hosts=None):
     """执行一次 OAuth2 刷新；成功返回 (True, 新token, None)，失败返回 (False, None, 原因)。"""
+    hosts = hosts or _hosts_for(_region_of(path, rec))
     refresh_token = rec.get("refreshToken") or ""
     if not refresh_token:
         return False, None, "凭据里没有 refreshToken"
@@ -160,10 +207,11 @@ def _do_refresh(path, record_key, rec):
         "refresh_token": refresh_token,
         "client_id": rec.get("clientId") or "mcode-public",
     })
-    req = urllib.request.Request(EP_OAUTH_TOKEN, data=body.encode("utf-8"), method="POST", headers={
+    oauth_url = hosts["oauth"].rstrip("/") + "/oauth2/token"
+    req = urllib.request.Request(oauth_url, data=body.encode("utf-8"), method="POST", headers={
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
-        "Origin": "https://agent.minimax.cn",
+        "Origin": hosts["ug"],
         "User-Agent": USER_AGENT,
     })
     last_err = ""
@@ -206,9 +254,10 @@ def _do_refresh(path, record_key, rec):
     return False, None, last_err
 
 
-def _ensure_fresh_token(path, record_key, rec):
+def _ensure_fresh_token(path, record_key, rec, hosts=None):
     """确保 token 可用：剩余有效期不足时自动续期。
     返回 (token or None, 续期与否, 说明 or None)。"""
+    hosts = hosts or _hosts_for(_region_of(path, rec))
     exp = int(rec.get("expiresAtMs") or 0)
     now_ms = int(time.time() * 1000)
     no_refresh = os.environ.get("MINIMAX_NO_REFRESH", "").strip().lower() in ("1", "true", "yes", "on")
@@ -218,7 +267,7 @@ def _ensure_fresh_token(path, record_key, rec):
             if exp > now_ms:
                 return rec["accessToken"], False, "已禁用自动续期，当前 token 仍有效"
             return None, False, "登录态已过期且禁用自动续期，请打开一次 MiniMax Code 客户端"
-        ok, token, err = _do_refresh(path, record_key, rec)
+        ok, token, err = _do_refresh(path, record_key, rec, hosts)
         if ok:
             return token, True, None
         if exp > now_ms:
@@ -289,9 +338,11 @@ def _retry_request(method, url, token, body=None, retries=3):
 
 
 # ══════════════════ 业务封装 ══════════════════
-def get_status(token):
+def get_status(token, hosts=None):
     """返回 (ok, payload)。payload 为 data 字段或 None。"""
-    http, js, raw = _retry_request("GET", EP_STATUS + "?" + _query(), token)
+    hosts = hosts or _hosts_for("cn")
+    url = hosts["ug"].rstrip("/") + "/minimax-cloud/api/v1/signin/status?" + _query()
+    http, js, raw = _retry_request("GET", url, token)
     if http != 200:
         return False, "status http=%s %s" % (http, (raw or "")[:120])
     base = ((js or {}).get("base_resp") or {})
@@ -300,10 +351,11 @@ def get_status(token):
     return True, (js or {}).get("data") or {}
 
 
-def get_credit(token):
+def get_credit(token, hosts=None):
     """返回 (余额 or None, 错误 or None)。"""
-    http, js, raw = _retry_request(
-        "GET", EP_CREDIT + "?business=Agent&device_platform=desktop", token)
+    hosts = hosts or _hosts_for("cn")
+    url = hosts["credit"].rstrip("/") + "/backend/account/token_plan_credit?business=Agent&device_platform=desktop"
+    http, js, raw = _retry_request("GET", url, token)
     if http != 200:
         return None, "credit http=%s" % http
     base = ((js or {}).get("base_resp") or {})
@@ -316,9 +368,11 @@ def get_credit(token):
         return None, "credit 解析失败"
 
 
-def post_claim(token):
+def post_claim(token, hosts=None):
     """领取一次。返回 (http, payload|None, raw)。"""
-    return _request("POST", EP_CLAIM + "?" + _query(), token, "{}")
+    hosts = hosts or _hosts_for("cn")
+    url = hosts["ug"].rstrip("/") + "/minimax-cloud/api/v1/signin/claim?" + _query()
+    return _request("POST", url, token, "{}")
 
 
 def today_day(payload):
@@ -343,11 +397,12 @@ def _write_log(payload):
 
 # ══════════════════ doctor ══════════════════
 def cmd_doctor():
+    all_records = _load_auth_records()
     path, record_key, rec = _pick_record()
     if not rec:
         return {
             "result": "NO_AUTH", "needs_attention": True, "online_checked": False,
-            "report": "没找到 ~/.minimax/auth/**/auth.json 登录凭据，请先安装并登录 MiniMax Code 桌面端",
+            "report": "没找到 ~/.minimax 下的 auth.json 登录凭据，请先安装并登录 MiniMax Code 桌面端",
         }, 1
 
     token = rec["accessToken"]
@@ -355,12 +410,19 @@ def cmd_doctor():
     left_s = max(0, (exp_ms - int(time.time() * 1000)) // 1000) if exp_ms else 0
     expired = bool(exp_ms) and exp_ms < int(time.time() * 1000)
 
+    detected_region = _region_of(path, rec)
     detail = {
         "result": "OK",
         "needs_attention": False,
         "online_checked": False,
         "auth_file": path,
+        "candidate_count": len(all_records),
+        "candidates": [{"file": p, "region": _region_of(p, r),
+                        "expires_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(int(r.get("expiresAtMs") or 0) / 1000)) if r.get("expiresAtMs") else None}
+                       for p, k, r in all_records],
         "region": rec.get("region"),
+        "detected_region": detected_region,
+        "api_host": _hosts_for(detected_region)["ug"],
         "audience": rec.get("audience"),
         "access_token": _mask(token),
         "has_refresh_token": bool(rec.get("refreshToken")),
@@ -383,32 +445,56 @@ def cmd_doctor():
 
 
 # ══════════════════ status ══════════════════
+def _resolve_session():
+    """遍历所有凭据 × 两种区域，找到第一个能用的 (token, hosts, payload, renewed, diag)。
+    diag 是尝试记录，失败时写进报告方便排查（不含任何 token）。"""
+    records = _load_auth_records()
+    records.sort(key=lambda x: int(x[2].get("expiresAtMs") or 0), reverse=True)
+    diag = []
+    for path, record_key, rec in records[:6]:
+        detected = _region_of(path, rec)
+        for region in ([detected, "global" if detected == "cn" else "cn"]
+                       if not os.environ.get("MINIMAX_REGION") else [detected]):
+            hosts = _hosts_for(region)
+            token, renewed, err = _ensure_fresh_token(path, record_key, rec, hosts)
+            if not token:
+                diag.append("%s/%s 续期失败: %s" % (os.path.basename(path), region, err))
+                continue
+            ok, payload = get_status(token, hosts)
+            if ok:
+                return token, hosts, payload, renewed, diag
+            diag.append("%s/%s 查询失败: %s" % (os.path.basename(path), region, payload))
+    return None, None, None, False, diag
+
+
+def _auth_failure(diag):
+    sample = " | ".join(diag[-3:])[:300]
+    return {"result": "AUTH_ERROR", "needs_attention": True, "online_checked": bool(diag),
+            "diagnostics": diag,
+            "report": ("所有凭据/区域都未通过，请打开一次 MiniMax Code 客户端重新登录并刷新凭据。"
+                       "最近尝试：%s" % sample if sample else
+                       "登录态不可用，请打开一次 MiniMax Code 客户端重新登录")}
+
+
 def cmd_status():
-    path, record_key, rec = _pick_record()
-    if not rec:
+    records = _load_auth_records()
+    if not records:
         return {"result": "NO_AUTH", "needs_attention": True, "online_checked": False,
                 "report": "没找到登录凭据，请先登录 MiniMax Code 桌面端"}, 1
 
-    token, renewed, refresh_err = _ensure_fresh_token(path, record_key, rec)
+    token, hosts, payload, renewed, diag = _resolve_session()
     if not token:
-        return {"result": "AUTH_ERROR", "needs_attention": True, "online_checked": False,
-                "report": refresh_err or "登录态不可用"}, 1
-
-    ok, payload = get_status(token)
-    if not ok:
-        expired = "401" in str(payload) or "403" in str(payload)
-        return {"result": "AUTH_ERROR" if expired else "NETWORK",
-                "needs_attention": True, "online_checked": True,
-                "renewed": renewed,
-                "report": ("登录态已失效且续期未成功，请打开一次 MiniMax Code 客户端重新登录" if expired
-                           else "签到状态查询失败：%s" % payload)}, 1
+        payload, code = _auth_failure(diag)
+        payload["mode"] = "status"
+        return payload, 1
 
     day = today_day(payload)
     checked = bool(day) and day.get("status") == STATUS_CHECKED
-    credits, err = get_credit(token)
+    credits, err = get_credit(token, hosts)
 
     rows = {"today_checked_in": checked, "today_points": (day or {}).get("points"),
-            "credits_remaining": credits, "credit_error": err, "renewed": renewed}
+            "credits_remaining": credits, "credit_error": err, "renewed": renewed,
+            "region": _region_of(*_locate_record(token, records)), "host": hosts["ug"]}
     report = "今日%s（可领 %s 积分）" % (
         "已签到" if checked else "未签到", (day or {}).get("points", "-"))
     if credits is not None:
@@ -417,43 +503,47 @@ def cmd_status():
             **rows, "report": report}, 0
 
 
+def _locate_record(token, records):
+    """按 token 反查记录位置，供日志展示区域；找不到时给默认值。"""
+    for path, key, rec in records:
+        if rec.get("accessToken") == token:
+            return path, rec
+    return "", {}
+
+
 # ══════════════════ auto / silent ══════════════════
 def run_checkin():
-    path, record_key, rec = _pick_record()
-    if not rec:
+    records = _load_auth_records()
+    if not records:
         return {"result": "NO_AUTH", "needs_attention": True, "online_checked": False,
                 "report": "没找到登录凭据，请先登录 MiniMax Code 桌面端"}, 1
 
-    token, renewed, refresh_err = _ensure_fresh_token(path, record_key, rec)
+    token, hosts, payload, renewed, diag = _resolve_session()
     if not token:
-        return {"result": "AUTH_ERROR", "needs_attention": True, "online_checked": False,
-                "report": refresh_err or "登录态不可用"}, 1
-
-    ok, payload = get_status(token)
-    if not ok:
-        expired = "401" in str(payload)
-        return {"result": "AUTH_ERROR" if expired else "NETWORK",
-                "needs_attention": expired, "online_checked": True, "renewed": renewed,
-                "report": ("登录态已失效且续期未成功，请打开一次 MiniMax Code 客户端重新登录" if expired
-                           else "签到状态查询失败：%s" % payload)}, (1 if expired else 0)
+        result, code = _auth_failure(diag)
+        result["mode"] = "auto"
+        return result, code
 
     day = today_day(payload)
     if day and day.get("status") == STATUS_CHECKED:
-        credits, _ = get_credit(token)
+        credits, _ = get_credit(token, hosts)
         report = "今日已签到（可领 %s 积分）" % day.get("points", "-")
         if credits is not None:
             report += "，积分余额 %s" % int(credits)
         return {"result": "ALREADY", "needs_attention": False, "online_checked": True,
                 "today_checked_in": True, "renewed": renewed, "credits_remaining": credits,
-                "report": report}, 0
+                "region": _region_of(*_locate_record(token, records)), "host": hosts["ug"],
+                "diagnostics": diag, "report": report}, 0
 
-    http, js, raw = post_claim(token)
+    http, js, raw = post_claim(token, hosts)
     if http != 200:
         return {"result": "ERROR", "needs_attention": True, "online_checked": True,
+                "diagnostics": diag,
                 "report": "领取请求失败 http=%s %s" % (http, (raw or "")[:120])}, 1
     base = ((js or {}).get("base_resp") or {})
     if base.get("status_code") != 0:
         return {"result": "ERROR", "needs_attention": True, "online_checked": True,
+                "diagnostics": diag,
                 "report": "领取失败 code=%s %s" % (base.get("status_code"),
                                                   base.get("status_msg"))}, 1
 
@@ -463,7 +553,7 @@ def run_checkin():
     confirmed = bool(day_after) and day_after.get("status") == STATUS_CHECKED
 
     if claim_result == CLAIM_DUP or confirmed:
-        credits, _ = get_credit(token)
+        credits, _ = get_credit(token, hosts)
         if claim_result == CLAIM_DUP:
             report = "今日已签到（重复领取已去重）"
         else:
@@ -473,9 +563,12 @@ def run_checkin():
         return {"result": "SUCCESS" if confirmed else "ALREADY",
                 "needs_attention": False, "online_checked": True,
                 "claim_result": claim_result, "points": data.get("points"),
-                "renewed": renewed, "credits_remaining": credits, "report": report}, 0
+                "renewed": renewed, "credits_remaining": credits,
+                "region": _region_of(*_locate_record(token, records)), "host": hosts["ug"],
+                "diagnostics": diag, "report": report}, 0
 
     return {"result": "ERROR", "needs_attention": True, "online_checked": True,
+            "diagnostics": diag,
             "report": "领取结果未确认（claim_result=%s，回查未通过）" % claim_result}, 1
 
 

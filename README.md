@@ -682,14 +682,19 @@ python minmax_signin.py silent-poll   # 轮询补签：已签则零请求
 
 | 环境变量 | 作用 |
 |---|---|
-| `MINIMAX_AUTH_FILE` | 指定凭据文件（自动探测 `~/.minimax/auth/**/auth.json` 失败时） |
+| `MINIMAX_AUTH_FILE` | 指定凭据文件（自动探测 `~/.minimax/**/auth.json` 失败时） |
 | `MINIMAX_SIGNIN_LOG` | 日志路径（默认 `minmax_signin.log`） |
 | `MINIMAX_SIGNIN_LOG_EMPTY=1` | 空跑（已签过）也写日志 |
 | `MINIMAX_TIME_BUDGET` | 单次运行网络时间预算秒数（默认 180，上限 300） |
 | `MINIMAX_NO_REFRESH=1` | 禁用自动续期（保守模式：token 过期就提示打开客户端） |
+| `MINIMAX_REGION=cn\|global` | 强制指定服务区域；默认自动从凭据路径/字段推断（国内 `.cn`、海外 `.io`） |
+| `MINIMAX_UG_HOST` / `MINIMAX_OAUTH_HOST` / `MINIMAX_CREDIT_HOST` | 手动覆盖三个服务域名（区域探测不准/客户端改版时） |
 
 > [!NOTE]
-> **自动续期**：token 有效期约 12 小时。脚本在剩余有效期不足 1 小时（或已过期）时，自动用 refreshToken 调 `account.minimax.cn/oauth2/token`（逆向自桌面端 3.1.6）换取新 token，并把**轮换后的新 refreshToken 原子写回凭据文件**（generation+1），与客户端共用同一条 token 链。客户端连续几天不开也能正常签到；只有 refreshToken 彻底失效（如长时间未续期被服务端回收）才需要重新登录客户端。
+> **自动续期**：token 有效期约 12 小时。脚本在剩余有效期不足 1 小时（或已过期）时，自动用 refreshToken 调对应区域的 `/oauth2/token`（国内 `account.minimax.cn`、海外 `account.minimax.io`，逆向自桌面端 3.1.6）换取新 token，并把**轮换后的新 refreshToken 原子写回凭据文件**（generation+1），与客户端共用同一条 token 链。客户端连续几天不开也能正常签到；只有 refreshToken 彻底失效才需要重新登录客户端。
+
+> [!IMPORTANT]
+> **区域与多凭据自适应**：桌面端同时内置国内（`agent.minimax.cn`）和海外（`agent.minimax.io`）两套域名，凭据目录结构也随版本变化。脚本会递归搜索 `~/.minimax` 下所有 `auth.json`，按有效期排序**逐个凭据 × 两种区域**尝试，直到某个组合查询成功——因此海外版客户端、或存在多个历史凭据文件时也能正常工作。`doctor` 会列出所有候选凭据、推断的区域、API 域名与有效期；日志里的 `diagnostics` 字段会记录失败尝试（不含 token），方便排查。若自动推断不准，用 `MINIMAX_REGION` 或 `MINIMAX_*_HOST` 强制指定。
 
 > [!WARNING]
 > 签到接口逆向自桌面端，服务端改版即可能失效。脚本不会打印或记录 `accessToken` / `api_key`；使用风险自负，请遵守 MiniMax 服务条款。
